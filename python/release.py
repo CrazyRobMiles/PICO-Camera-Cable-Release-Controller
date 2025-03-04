@@ -26,6 +26,7 @@ class CableReleaseController:
     MIN_DELAY = 0
     
     MAX_SERVO_ANGLE=107
+    MID_SERVO_ANGLE=70
     MIN_SERVO_ANGLE=20
     CENTRE_SERVO_ANGLE=50
     
@@ -33,7 +34,7 @@ class CableReleaseController:
 
     def __init__(self, i2c_sda,i2c_scl,
                  encoder_a,encoder_b,encoder_button,
-                 time_button
+                 time_button,servo_pin
                  ):
         # Make i2c connection
         self.i2c = busio.I2C(i2c_scl, i2c_sda)
@@ -53,16 +54,18 @@ class CableReleaseController:
         tmp_pin = DigitalInOut(time_button)
         tmp_pin.pull = Pull.UP
         self.time_button = Debouncer(tmp_pin,interval=0.01)
-        self.state=self.TIME_SET
         self.delay_time=0
         self.shutter_time=1.0
         self.display_times()
-        pwm_servo = pwmio.PWMOut(board.GP4, duty_cycle=2 ** 15, frequency=50)
+        pwm_servo = pwmio.PWMOut(servo_pin, duty_cycle=2 ** 15, frequency=50)
         self.servo = servo.Servo(
             pwm_servo, min_pulse=500, max_pulse=2200
-        )  # tune pulse for specific servo
+        )
         self.servo_home()
     
+    def check_current(self):
+        time.sleep(0.25)
+        
     def servo_home(self):
         self.servo.angle=self.MIN_SERVO_ANGLE
         self.show_current()
@@ -119,11 +122,12 @@ class CableReleaseController:
         self.MIN_SERVO_ANGLE = self.limit_test(self.CENTRE_SERVO_ANGLE,-1,self.MAX_CURRENT)
         self.MAX_SERVO_ANGLE = self.limit_test(self.CENTRE_SERVO_ANGLE,1,self.MAX_CURRENT)
         
-    def update(self):
-        
+    def update_shutter(self):
+
         self.time_button.update()
         
         if self.time_button.fell:
+        
             print("Taking a picture")
             self.display_text("****")
             time.sleep(0.2)
@@ -143,40 +147,38 @@ class CableReleaseController:
                 st=st-1
             self.servo_home()
             self.display_times()
-            return
-       
+            
+    def update_times(self):
+
         self.encoder_button.update()
 
-        if self.encoder_button.fell:
-            self.state=self.DELAY_SET
-
-        if self.encoder_button.rose:
-            self.state=self.TIME_SET
-            
         new_pos = self.encoder.position
-        if new_pos == self.enc_pos:
+        delta=new_pos-self.enc_pos
+
+        if delta == 0:
             return
         
         # encoder turned
-        delta=new_pos-self.enc_pos
         self.enc_pos=new_pos
-        
-        if self.state==self.TIME_SET:
+
+        if self.encoder_button.value:
             self.shutter_time = self.shutter_time+delta
             if self.shutter_time < self.MIN_SHUTTER:
                 self.shutter_time = self.MIN_SHUTTER
             if self.shutter_time > self.MAX_SHUTTER:
                 self.shutter_time = self.MAX_SHUTTER
-                
-        if self.state==self.DELAY_SET:
+        else:        
             self.delay_time = self.delay_time+delta
             if self.delay_time < self.MIN_DELAY:
                 self.delay_time = self.MIN_DELAY
             if self.delay_time > self.MAX_DELAY:
                 self.delay_time = self.MAX_DELAY
-                
-        self.display_times()        
+
+        self.display_times()
         
+    def update(self):
+        self.update_shutter()
+        self.update_times()
 
     def servo_test(self):
         while True:
@@ -195,22 +197,22 @@ class CableReleaseController:
             if self.time_button.rose:
                 print("button released")
             
-            
-            
     def run(self):
         print("Cable Release Rob Miles (www.robmiles.com) " + Version)
         while True:
             self.update()
             time.sleep(0.01)
 
-    
-
-cable = CableReleaseController(i2c_sda=board.GP0, i2c_scl=board.GP1,
-                 encoder_a=board.GP8,encoder_b=board.GP9,encoder_button=board.GP22,
-                 time_button=board.GP16
-                 )
+cable = CableReleaseController(
+    i2c_sda=board.GP0, i2c_scl=board.GP1,
+    encoder_a=board.GP8,
+    encoder_b=board.GP9,
+    encoder_button=board.GP22,
+    time_button=board.GP16,
+    servo_pin=board.GP4 )
 #cable.button_test()
 #cable.servo_test()
+#cable.set_limits()
 cable.run()
 
 
